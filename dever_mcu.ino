@@ -4,14 +4,14 @@
 #include "DHT.h"        // including the library of DHT11 temperature and humidity sensor
 #define DHTTYPE DHT11   // DHT 11
 
-#define dht_dpin D4
+#define dht_dpin D7
 DHT dht(dht_dpin, DHTTYPE);
 
 uint8_t IMUAddress = 0x68;
 int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ;
 
-const char* ssid     = "Redmi_kit";
-const char* password = "11111111";
+const char* ssid     = "DVS";
+const char* password = "11212232";
 
 void setup() {
   Wire.begin(D1, D2); // sda, scl
@@ -52,35 +52,42 @@ void loop() {
 
   double accel = (double)sqrt(AcX * AcX + AcY * AcY + AcZ * AcZ);
 
-  if (accel > 25) {
+  if (accel > 30) {
     sendData("O", accel);
+    sendTH();
   }
-  if (abs(arx) > 45 || abs(ary) > 45 || (abs(arx) > 25 && abs(ary) > 25)) {
-    if (antiddos) {
-      sendData("A", arx > ary ? arx : ary);
-      antiddos = false;
-    }
+  if (!accel_failed && abs(arx) > 45 || abs(ary) > 45 || (abs(arx) > 25 && abs(ary) > 25)) {
+    sendData("A", max(arx, ary));
+    sendTH();
+    accel_failed = true;
+  } else {
+    accel_failed = false;
+    delay(200);
   }
-  antiddost++;
-  if (antiddost > 100) {
-    antiddost = 0;
-    antiddos = true;
-  }
+
   delay(50);
-  int h = dht.readHumidity();
+
   int t = dht.readTemperature();
   if (lastTemp != t) {
     sendData("T", t);
     lastTemp = t;
     delay(25);
   }
+  int h = dht.readHumidity();
   if (lastHum != h) {
     sendData("H", h);
     lastHum = h;
     delay(25);
   }
 }
-
+void sendTH() {
+  int t = dht.readTemperature();
+  int h = dht.readHumidity();
+  sendData("T", t);
+  lastTemp = t;
+  sendData("H", h);
+  lastHum = h;
+}
 void i2cWrite(uint8_t registerAddress, uint8_t data) {
   Wire.beginTransmission(IMUAddress);
   Wire.write(registerAddress);
@@ -99,6 +106,8 @@ uint8_t* i2cRead(uint8_t registerAddress, uint8_t nbytes) {
 }
 
 void sendData(char *type, int data) {
+  if (data > 180)
+    return;
   if (WiFi.status() == WL_CONNECTED) {
     char *request = (char*)malloc(100 * sizeof(char));
     sprintf(request, "http://dever.itis.team/order/set_state/1/%s/%d", type, data);
@@ -106,6 +115,8 @@ void sendData(char *type, int data) {
     HTTPClient http;
     http.begin(request);
     int httpCode = http.GET();
+        String payload = http.getString();
+    Serial.println(payload);
   } else {
     Serial.println("Error in WiFi connection");
   }
